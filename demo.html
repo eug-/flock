@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+  <body>
+    <pre>> flockDemo.run(<number of members>); </pre>
+    <script src="src/flock.js"></script>
+    <script>
+      var flockDemo = {
+        run: function(count) {
+          var flock = new Flock(count);
+          flock.publish(Flock.NEW_ACTION, 'fly');
+        }
+      };
+    </script>
+  </body>
+</html>

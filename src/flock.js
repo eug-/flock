@@ -7,14 +7,15 @@
 /**
  * TODO: Maybe replace this with something real later?
  */
-var debugger = function() {
+var logger = function() {
+  var args = Array.prototype.slice.call(arguments);
   if (window.console && window.console.log) {
-    window.console.log.apply(window.console.log, arguments);
+    window.console.log.apply(window.console, args);
   }
 };
 
-debugger.error = debugger.log = debugger.warn = function() {
-  debugger.apply(debugger, arguments);
+logger.error = logger.log = logger.warn = function() {
+  logger.apply(null, arguments);
 };
 
 
@@ -54,9 +55,9 @@ PubSub.prototype.unsubscribe = function(evt, callback, context) {
 };
 
 
-PubSub.prototype.publish = function(evt) {
+PubSub.prototype.publish = function(evt, data) {
   this.forEachInEvent(evt, function(listener) {
-    listener[0].call(listener[1], evt);
+    listener[0].call(listener[1], evt, data);
   });
 };
 
@@ -64,19 +65,59 @@ PubSub.prototype.publish = function(evt) {
 
 /**
  * Constructs a flock out of a leader and an array of followers.
- * @param {!Array<!FlockMember>} members The members of the flock
- *     in order of importance.
+ * @param {!Array<!FlockMember>|number} membersOrMemberCount The
+ *     members of the flock in order of importance, or the count
+ *     of members to be created for this flock.
  * @constructor
  */
-var Flock = function(members) {
-  this.members;
-  this.registerMembers(members);
+var Flock = function(membersOrMemberCount) {
+  PubSub.call(this);
+
+  if (typeof membersOrMemberCount == 'number') {
+    membersOrMemberCount = Flock.generateMembers(membersOrMemberCount);
+  }
+  this.members = membersOrMemberCount;
+  this.registerMembers(membersOrMemberCount);
+};
+Flock.prototype = new PubSub();
+
+
+/**
+ * Flock action constants.
+ * @type {string}
+ */
+Flock.NEW_ACTION = 'new_action';
+
+
+/**
+ * Delay between leader and follower message in ms.
+ * @type {number}
+ */
+Flock.TRANSMISSION_DELAY = 300;
+
+
+/**
+ * Creates new flock members.
+ * @param {number} count The number of new flock members to generate.
+ * @return {!Array<!FlockMember>} An array containing new flock members.
+ */
+Flock.generateMembers = function(count) {
+  var members = [];
+  for (;count >= 0; count --) {
+    members.push(new FlockMember());
+  }
+  return members;
 };
 
 
+/**
+ * Sets up members of the flock with leaders and flock ids.
+ * @param {!Array<!FlockMember>} members All flock members.
+ */
 Flock.prototype.registerMembers = function(members) {
   for(var i=0, l=members.length; i < l; i++) {
-    this.registerMember(member, this.getLeaderForNode(i));
+    members[i].setId(i);
+    members[i].registerLeader(this.getLeaderForNodeAt(i));
   }
 };
 
@@ -103,16 +144,11 @@ Flock.prototype.getLeaderForNodeAt = function(index) {
   if (leaderIndex < 0) {
     return this;
   }
-  var leader = this.followers[leaderIndex];
+  var leader = this.members[leaderIndex];
   if (!leader) {
-    debugger.error('You done boken something. Leader index is out of bounds');
+    logger.error('You done boken something. Leader index is out of bounds');
   }
   return leader;
-};
-
-
-Flock.prototype.registerMember = function(member, leader) {
-  member.registerLeader(leader);
 };
 
 
@@ -121,16 +157,49 @@ Flock.prototype.registerMember = function(member, leader) {
  * Constructs a flock member.
  */
 var FlockMember = function() {
+  PubSub.call(this);
+  this.leader = null;
+};
+FlockMember.prototype = new PubSub();
 
+
+/**
+ * A unique identifier for this flock member in a flock.
+ * @type {number|string}
+ */
+FlockMember.prototype.id = 0;
+
+
+/**
+ * Sets a unique identifier for this member.
+ * @param {number|string} id The identifier of this member.
+ */
+FlockMember.prototype.setId = function(id) {
+  this.id = id;
 };
 
 
-FlockMember.prototype.leader;
-
-
+/**
+ * Sets up a reference to this flock member's leader.
+ * @param {FlockMember|Flock} leader This member's leader.
+ *
+ * TODO: Is a pubsub too heavy?
+ */
 FlockMember.prototype.registerLeader = function(leader) {
   this.leader = leader;
+  this.leader.subscribe(Flock.NEW_ACTION, this.onNewAction, this);
 };
 
 
-
+/**
+ * Responds to an action event.
+ * @param {string} event The event type that was published.
+ * @param {string} action The action type published.
+ */
+FlockMember.prototype.onNewAction = function(event, action) {
+  logger.log('Member ', this.id, ' is performing ', action);
+  var self = this;
+  window.setTimeout(function() {
+    self.publish(event, action);
+  }, Flock.TRANSMISSION_DELAY);
+};
